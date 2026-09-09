@@ -1,0 +1,55 @@
+"""
+Authentication endpoints: register (creates an org + its first admin user)
+and login (verifies credentials, returns a JWT).
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.orm import Session
+
+from app.core.database import get_db
+from app.core.security import create_access_token, hash_password, verify_password
+from app.models.organization import Organization
+from app.models.user import User
+from app.schemas.auth import RegisterRequest, Token
+from app.schemas.user import UserOut
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+    existing_user = db.query(User).filter(User.email == payload.email).first()
+    if existing_user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+
+    org = Organization(name=payload.org_name)
+    db.add(org)
+    db.flush()  # assigns org.id without fully committing yet
+
+    user = User(
+        org_id=org.id,
+        email=payload.email,
+        password_hash=hash_password(payload.password),
+        role="admin",  # the first user of a new org is always its admin
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.post("/login", response_model=Token)
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == form_data.username).first()
+    if not user or not verify_password(form_data.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    access_token = create_access_token(
+        data={"sub": str(user.id), "org_id": str(user.org_id), "role": user.role}
+    )
+    return Token(access_token=access_token)
