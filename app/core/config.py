@@ -1,0 +1,22 @@
+"""
+Centralized application settings.
+All environment variables are loaded here ONCE, and every other file
+imports `settings` from this module instead of reading os.environ directly.
+"""
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    postgres_user: str
+    postgres_password: str
+    postgres_db: str
+    postgres_port: int
+
+    redis_port: int
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+
+# A single shared instance, imported everywhere else in the app.
+settings = Settings()
