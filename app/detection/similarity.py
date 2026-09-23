@@ -12,7 +12,7 @@ from app.detection.vectorstore import get_collection
 # Thresholds — tunable. These are starting points, not final values;
 # Module 5 (Hardening) is where we'll tune these against real benchmarks.
 BLOCK_THRESHOLD = 0.80
-SUSPICIOUS_THRESHOLD = 0.60
+SUSPICIOUS_THRESHOLD = 0.50
 
 
 def run_similarity_check(text: str) -> DetectionResult:

@@ -1,18 +1,19 @@
 """
 The core gateway endpoint: receives a chat message from an authenticated
-user, forwards it to the configured LLM provider, logs the full exchange,
-and returns the response.
-
-NOTE: This version has NO security detection yet — that's Module 3.
-Right now this is pure plumbing: Auth -> LLM Provider -> Database Log.
+user, runs it through the detection pipeline (Module 3), and only
+forwards it to the LLM provider if the pipeline allows it. Every stage's
+verdict is logged to the database for the audit trail.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.config import settings
+from app.detection.models import Verdict
+from app.detection.pipeline import run_detection_pipeline
+from app.models.detection_log import DetectionLog
 from app.models.request_log import RequestLog
 from app.models.user import User
 from app.providers.factory import get_llm_provider
@@ -27,9 +28,17 @@ def proxy_chat(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    provider = get_llm_provider()
-    reply_text = provider.chat(payload.message)
+    # Run the detection pipeline BEFORE touching the LLM provider.
+    pipeline_state = run_detection_pipeline(payload.message)
+    final_verdict = pipeline_state["final_verdict"]
+    is_blocked = final_verdict == Verdict.BLOCK
 
+    reply_text = None
+    if not is_blocked:
+        provider = get_llm_provider()
+        reply_text = provider.chat(payload.message)
+
+    # Log the request itself.
     log_entry = RequestLog(
         org_id=current_user.org_id,
         user_id=current_user.id,
@@ -39,7 +48,28 @@ def proxy_chat(
         llm_model=settings.groq_model,
     )
     db.add(log_entry)
+    db.flush()  # assigns log_entry.id without fully committing yet
+
+    # Log EVERY stage that ran, whether it was safe or not.
+    for stage_result in pipeline_state["results"]:
+        db.add(
+            DetectionLog(
+                request_id=log_entry.id,
+                stage=stage_result.stage,
+                verdict=stage_result.verdict.value,
+                confidence=stage_result.confidence,
+                reason=stage_result.reason,
+            )
+        )
+
     db.commit()
     db.refresh(log_entry)
+
+    if is_blocked:
+        blocking_stage = pipeline_state["results"][-1]
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Request blocked by {blocking_stage.stage}: {blocking_stage.reason}",
+        )
 
     return ChatResponse(request_id=log_entry.id, response=reply_text)
