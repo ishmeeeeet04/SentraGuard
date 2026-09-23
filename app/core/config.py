@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     postgres_db: str
     postgres_port: int
 
+    redis_host: str = "localhost"
     redis_port: int
 
     secret_key: str
