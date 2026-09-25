@@ -1,8 +1,8 @@
 """
 The core gateway endpoint: receives a chat message from an authenticated
-user, runs it through the detection pipeline (Module 3), and only
-forwards it to the LLM provider if the pipeline allows it. Every stage's
-verdict is logged to the database for the audit trail.
+user, checks rate limits, runs it through the detection pipeline
+(Module 3), and only forwards it to the LLM provider if allowed. Every
+stage's verdict is logged to the database for the audit trail.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.config import settings
+from app.core.rate_limiter import is_rate_limited
 from app.detection.models import Verdict
 from app.detection.pipeline import run_detection_pipeline
 from app.models.detection_log import DetectionLog
@@ -28,6 +29,13 @@ def proxy_chat(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # Rate limit check FIRST — before spending any time on detection or LLM calls.
+    if is_rate_limited(str(current_user.id)):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded. Please wait before sending more requests.",
+        )
+
     # Run the detection pipeline BEFORE touching the LLM provider.
     pipeline_state = run_detection_pipeline(payload.message)
     final_verdict = pipeline_state["final_verdict"]
