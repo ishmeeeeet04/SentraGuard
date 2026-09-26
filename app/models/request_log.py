@@ -22,6 +22,7 @@ class RequestLog(Base):
 
     prompt = Column(Text, nullable=False)
     response = Column(Text, nullable=True)  # nullable: a blocked request may have no LLM response
+    final_verdict = Column(String(20), nullable=False, default="safe")
 
     llm_provider = Column(String(50), nullable=False)
     llm_model = Column(String(100), nullable=False)
