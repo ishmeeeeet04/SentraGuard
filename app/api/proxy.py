@@ -29,14 +29,12 @@ def proxy_chat(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # Rate limit check FIRST — before spending any time on detection or LLM calls.
     if is_rate_limited(str(current_user.id)):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Rate limit exceeded. Please wait before sending more requests.",
         )
 
-    # Run the detection pipeline BEFORE touching the LLM provider.
     pipeline_state = run_detection_pipeline(payload.message)
     final_verdict = pipeline_state["final_verdict"]
     is_blocked = final_verdict == Verdict.BLOCK
@@ -46,19 +44,18 @@ def proxy_chat(
         provider = get_llm_provider()
         reply_text = provider.chat(payload.message)
 
-    # Log the request itself.
     log_entry = RequestLog(
         org_id=current_user.org_id,
         user_id=current_user.id,
         prompt=payload.message,
         response=reply_text,
+        final_verdict=final_verdict.value,
         llm_provider="groq",
         llm_model=settings.groq_model,
     )
     db.add(log_entry)
-    db.flush()  # assigns log_entry.id without fully committing yet
+    db.flush()
 
-    # Log EVERY stage that ran, whether it was safe or not.
     for stage_result in pipeline_state["results"]:
         db.add(
             DetectionLog(
