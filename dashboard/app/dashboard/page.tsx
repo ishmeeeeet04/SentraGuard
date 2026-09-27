@@ -2,31 +2,33 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getTraffic, TrafficItem } from "@/lib/api";
+import { getTraffic, getMetrics, TrafficItem, Metrics } from "@/lib/api";
 
 export default function DashboardPage() {
   const [items, setItems] = useState<TrafficItem[]>([]);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const router = useRouter();
 
   useEffect(() => {
-    async function loadTraffic() {
+    async function loadDashboard() {
       const token = localStorage.getItem("sentraguard_token");
       if (!token) {
         router.push("/login");
         return;
       }
       try {
-        const data = await getTraffic();
-        setItems(data.items);
+        const [trafficData, metricsData] = await Promise.all([getTraffic(), getMetrics()]);
+        setItems(trafficData.items);
+        setMetrics(metricsData);
       } catch (err) {
-        setError("Failed to load traffic data");
+        setError("Failed to load dashboard data");
       } finally {
         setLoading(false);
       }
     }
-    loadTraffic();
+    loadDashboard();
   }, [router]);
 
   function verdictBadge(verdict: string) {
@@ -43,7 +45,7 @@ export default function DashboardPage() {
   }
 
   if (loading) {
-    return <main className="p-8">Loading traffic...</main>;
+    return <main className="p-8">Loading dashboard...</main>;
   }
 
   if (error) {
@@ -52,8 +54,30 @@ export default function DashboardPage() {
 
   return (
     <main className="min-h-screen bg-gray-50 p-8">
-      <h1 className="text-2xl font-bold mb-6">Live Traffic Feed</h1>
+      <h1 className="text-2xl font-bold mb-6">SentraGuard Dashboard</h1>
 
+      {/* Summary metric cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-8">
+        <div className="bg-white rounded-lg shadow p-5">
+          <p className="text-sm text-gray-500">Total Requests</p>
+          <p className="text-3xl font-bold">{metrics?.total_requests ?? 0}</p>
+        </div>
+        <div className="bg-white rounded-lg shadow p-5">
+          <p className="text-sm text-gray-500">Blocked</p>
+          <p className="text-3xl font-bold text-red-600">{metrics?.blocked_requests ?? 0}</p>
+        </div>
+        <div className="bg-white rounded-lg shadow p-5">
+          <p className="text-sm text-gray-500">Safe</p>
+          <p className="text-3xl font-bold text-green-600">{metrics?.safe_requests ?? 0}</p>
+        </div>
+        <div className="bg-white rounded-lg shadow p-5">
+          <p className="text-sm text-gray-500">Block Rate</p>
+          <p className="text-3xl font-bold">{metrics?.block_rate_percent ?? 0}%</p>
+        </div>
+      </div>
+
+      {/* Live traffic feed table */}
+      <h2 className="text-lg font-semibold mb-3">Live Traffic Feed</h2>
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="w-full text-left text-sm">
           <thead className="bg-gray-100 border-b">
