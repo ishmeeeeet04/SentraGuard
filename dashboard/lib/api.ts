@@ -38,3 +38,29 @@ export async function fetchWithAuth(path: string, options: RequestInit = {}) {
 
   return response;
 }
+
+export interface TrafficItem {
+  id: string;
+  prompt: string;
+  final_verdict: string;
+  llm_provider: string;
+  llm_model: string;
+  created_at: string;
+}
+
+export interface Metrics {
+  total_requests: number;
+  blocked_requests: number;
+  safe_requests: number;
+  block_rate_percent: number;
+}
+
+export async function getTraffic(): Promise<{ items: TrafficItem[]; total: number }> {
+  const response = await fetchWithAuth("/api/v1/dashboard/traffic");
+  return response.json();
+}
+
+export async function getMetrics(): Promise<Metrics> {
+  const response = await fetchWithAuth("/api/v1/dashboard/metrics");
+  return response.json();
+}
