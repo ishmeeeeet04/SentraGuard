@@ -4,6 +4,7 @@ This is the file uvicorn loads to start the server.
 """
 
 from fastapi import FastAPI, Depends
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.api.auth import router as auth_router
@@ -17,6 +18,16 @@ app = FastAPI(
     title="SentraGuard",
     description="AI Security Gateway for Prompt Injection Detection & Sensitive Data Leak Prevention",
     version="0.1.0",
+)
+
+# Allows the Next.js dashboard (running on a different port) to call this API.
+# Browsers block cross-origin requests by default — this explicitly permits it.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(auth_router)
