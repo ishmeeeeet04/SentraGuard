@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sentraguard_admin
+          POSTGRES_PASSWORD: ci_test_password
+          POSTGRES_DB: sentraguard
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      POSTGRES_USER: sentraguard_admin
+      POSTGRES_PASSWORD: ci_test_password
+      POSTGRES_DB: sentraguard
+      POSTGRES_PORT: 5432
+      REDIS_PORT: 6379
+      SECRET_KEY: ci_only_test_secret_key_never_used_in_production
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download spaCy model (needed by the pre-filter's PII detection)
+        run: python -m spacy download en_core_web_lg
+
+      - name: Create test database
+        run: PGPASSWORD=ci_test_password psql -h localhost -U sentraguard_admin -d sentraguard -c "CREATE DATABASE sentraguard_test;"
+
+      - name: Seed the known-attack vector corpus
+        run: python -m scripts.seed_vectorstore
+
+      - name: Run tests
+        run: pytest -v
